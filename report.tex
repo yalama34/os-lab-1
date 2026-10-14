@@ -1,0 +1,276 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage{fontspec}
+\setmainfont{cmunrm.otf}[
+  BoldFont=cmunbx.otf,
+  ItalicFont=cmunti.otf,
+  BoldItalicFont=cmunbi.otf
+]
+\setsansfont{cmunss.otf}[
+  BoldFont=cmunsx.otf,
+  ItalicFont=cmunsi.otf,
+  BoldItalicFont=cmunso.otf
+]
+\setmonofont{cmuntt.otf}[
+  BoldFont=cmuntb.otf,
+  ItalicFont=cmunit.otf,
+  BoldItalicFont=cmuntx.otf
+]
+\usepackage[english,russian]{babel}
+\usepackage[left=30mm,right=20mm,top=20mm,bottom=20mm]{geometry}
+\usepackage{indentfirst}
+\usepackage{setspace}
+\usepackage{enumitem}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{listings}
+\usepackage{needspace}
+\usepackage{titlesec}
+\usepackage[hidelinks]{hyperref}
+
+\setlength{\parindent}{1.25cm}
+\setlength{\parskip}{3pt}
+\setstretch{1.15}
+\setlist{nosep,leftmargin=1.25cm,topsep=5pt}
+\titleformat{\section}{\large\bfseries}{}{0pt}{}
+\titleformat{\subsection}{\normalsize\bfseries}{}{0pt}{}
+\titlespacing*{\section}{0pt}{14pt}{6pt}
+\titlespacing*{\subsection}{0pt}{10pt}{4pt}
+\newcommand{\code}[1]{\texttt{\detokenize{#1}}}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\renewcommand{\arraystretch}{1.2}
+\lstset{
+  language=C,
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\bfseries,
+  commentstyle=\itshape,
+  numbers=left,
+  numberstyle=\tiny,
+  numbersep=8pt,
+  xleftmargin=14pt,
+  breaklines=true,
+  breakatwhitespace=false,
+  keepspaces=true,
+  columns=fullflexible,
+  showstringspaces=false,
+  tabsize=4,
+  aboveskip=7pt,
+  belowskip=7pt
+}
+\hypersetup{pdftitle={Отчёт по лабораторной работе № 2. Вариант 19},
+  pdfauthor={Прудников Я. А.}}
+\raggedbottom
+\begin{document}
+
+\begin{center}
+  {\large\bfseries Отчёт по лабораторной работе № 2}\\[4pt]
+  по курсу «Операционные системы»\\[4pt]
+  Вариант 19
+\end{center}
+
+\noindent Студент группы М8О-203БВ-25: Прудников Я. А.
+
+\section*{Тема}
+Управление процессами в ОС Linux. Обмен данными между процессами с помощью каналов.
+
+\section*{Цель}
+Получить практические навыки создания дочерних процессов, передачи данных через каналы и перенаправления стандартных потоков ввода и вывода.
+
+\section*{Задание}
+Написать программу на языке Си, в которой родительский процесс создаёт два дочерних процесса. Родительская и дочерняя программы должны быть отдельными исполняемыми файлами.
+
+Первыми двумя строками пользователь вводит имена файлов для записи результатов первого и второго дочерних процессов. После этого пользователь вводит строки произвольной длины. С вероятностью 80\% родитель отправляет строку в \code{pipe1}, иначе в \code{pipe2}. Дочерние процессы удаляют гласные из полученных строк и записывают результат через стандартный вывод в соответствующие файлы. Необходимо предусмотреть обработку системных ошибок.
+
+\section*{Идея, метод, алгоритм}
+Используем две программы: \code{parent} и \code{child}. Родитель запускает два экземпляра \code{child}. У каждого экземпляра свой входной канал и свой выходной файл, заданный пользователем.
+
+\begin{enumerate}
+  \item Считываем имена двух файлов и удаляем из них символ перевода строки.
+  \item Создаём два неименованных канала.
+  \item Создаём два дочерних процесса. Их стандартный ввод перенаправляем на чтение из его канала, а стандартный вывод на запись в его файл.
+  \item Запускаем программу \code{child} в каждом дочернем процессе после \code{fork}.
+  \item Считываем очередную строку в родительском процессе. Получаем число \texttt{rand() \% 100}. Если оно меньше 80, отправляем строку в первый канал, иначе во второй.
+  \item Дочерний процесс читает строку, удаляет из неё гласные и выводит результат.
+  \item После окончания ввода закрываем оба конца каналов для записи. Дочерние процессы получают конец потока и завершаются
+  \item Дожидаемся завершения обоих процессов, проверяем их коды выхода и освобождаем ресурсы.
+\end{enumerate}
+
+\section*{Реализация}
+\subsection*{Организация обмена данными}
+Стандартный ввод родителя связан с пользовательским вводом. В дочерних процессах \code{stdin} связан с каналом, а \code{stdout} с выходным файлом. Поэтому программа \code{child} работает с обычными потоками и не выбирает канал или файл самостоятельно.
+
+Каналы создаём через \code{pipe2} с флагом \code{O_CLOEXEC}. Это сделано для того, чтобы каналы, унаследованные от родителя файловые дескрипторы при вызове \code{exec} автоматически закрывались. Процессы создаём через \code{fork}, потоки перенаправляем через \code{dup2}, а программу \code{child} запускаем через \code{execvp}. После замены программы исходные дескрипторы каналов закрываются благодаря \code{O_CLOEXEC}. Перенаправленные стандартные потоки остаются открытыми.
+
+Файлы открываем с флагами \code{O_WRONLY | O_CREAT | O_TRUNC}. Если файл уже существует, его прежнее содержимое удаляется. Для результатов используем два разных имени файла. Для ожидания используем \code{waitpid}.
+
+\subsection*{Обработка строк}
+В функции \code{read_line} сначала выделяем буфер на 256 байт. Если места не хватает, увеличиваем его в два раза через \code{realloc}. Это позволяет читать строки без заранее заданного ограничения длины, пока хватает памяти. Символ перевода строки сохраняем. Последнюю строку обрабатываем и в случае, если она заканчивается сразу концом потока
+
+В функции \code{remove_vowels} используем два индекса. Первым просматриваем исходную строку, вторым отмечаем место для следующего сохраняемого символа. Если символ не является гласной, записываем его на это место. В конце ставим нулевой символ.
+
+\subsection*{Распределение и запись строк, завершение работы}
+Значения от генератора от 0 до 79 направляют строку в первый канал, остальные значения во второй. Такое правило задаёт указанное в условии правило распределения
+
+Функция \code{os_pipe_write} передаёт строку полностью. Если \code{write} записал только часть данных, продолжаем запись оставшейся части. При завершении вызываем \code{cleanup}: функция закрывает все записи в каналы, ожидает процессы, освобождает строки с именами файлов, структуры каналов и процессов
+
+Проверяем результаты выделения памяти, создания каналов и процессов, открытия файлов, перенаправления потоков, записи и ожидания. При обнаружении ошибки возвращаем ненулевой код завершения. Для ряда системных ошибок выводим сообщение через \code{perror}.
+
+\subsection*{Файловая структура программы}
+\begin{itemize}
+  \item \code{src/parent.c}: чтение пользовательского ввода, выбор канала и завершение работы
+  \item \code{src/child.c}: чтение строк, удаление гласных и вывод результата.
+  \item \code{src/line_utils.c}: утилита для чтения и работы со строками
+  \item \code{src/platform/os_linux.c}: обёртка над os\_api для ОС Linux.
+  \item \code{src/include/os_api.h} и \code{src/include/line_utils.h}: объявления функций и типов
+\end{itemize}
+
+\section*{Код}
+\subsection*{Алгоритм выбора канала в родительской программе (фрагмент \code{parent.c})}
+\begin{lstlisting}
+int choice = rand() % 100;
+if (choice < 80) {
+    if (os_pipe_write(pipe1, line, length) < 0) {
+        cleanup(pipe1, pipe2, process_1, process_2,
+                file1, file2);
+        free(line);
+        return 1;
+    }
+    free(line);
+} else {
+    if (os_pipe_write(pipe2, line, length) < 0) {
+        cleanup(pipe1, pipe2, process_1, process_2,
+                file1, file2);
+        free(line);
+        return 1;
+    }
+    free(line);
+}
+\end{lstlisting}
+
+\subsection*{Перенаправление потоков в дочернем процессе (фрагмент \code{os_linux.c})}
+
+\begin{lstlisting}
+if (close(input->fd[1]) == -1) {
+    perror("close");
+    _exit(1);
+}
+if (dup2(input->fd[0], STDIN_FILENO) == -1) {
+    perror("dup2");
+    _exit(1);
+}
+if (input->fd[0] != STDIN_FILENO) {
+    if (close(input->fd[0]) == -1) {
+        perror("close");
+        _exit(1);
+    }
+}
+int file_fd = open(output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+if (file_fd == -1) {
+    perror("open");
+    _exit(1);
+}
+if (dup2(file_fd, STDOUT_FILENO) == -1) {
+    perror("dup2");
+    _exit(1);
+}
+if (file_fd != STDOUT_FILENO) {
+    if (close(file_fd) == -1) {
+        perror("close");
+        _exit(1);
+    }
+}
+char *args[] = {(char *)executable, NULL};
+execvp(executable, args);
+perror("execvp");
+_exit(127);
+\end{lstlisting}
+
+\subsection*{Дочерняя программа (\code{child.c})}
+
+\begin{lstlisting}
+#include "include/line_utils.h"
+#include <stdio.h>
+#include <stdbool.h>
+#include <stdlib.h>
+
+int main() {
+    while (true) {
+        char *line = NULL;
+        size_t length = 0;
+        int result = read_line(stdin, &line, &length);
+        if (result == 0) {
+            free(line);
+            break;
+        }
+        if (result == -1) {
+            free(line);
+            return 1;
+        }
+        remove_vowels(line);
+        if (fputs(line, stdout) == EOF) {
+            free(line);
+            return 1;
+        }
+        free(line);
+    }
+    return 0;
+}
+\end{lstlisting}
+
+\subsection*{Удаление гласных (фрагмент \code{line_utils.c})}
+\begin{lstlisting}
+void remove_vowels(char *line) {
+    if (line == NULL) {
+        return;
+    }
+    size_t j = 0;
+    for (size_t i = 0; line[i] != '\0'; i++) {
+        char ch = line[i];
+        int is_vowel = (ch == 'a' || ch == 'e' ||
+            ch == 'i' || ch == 'o' || ch == 'u' ||
+            ch == 'A' || ch == 'E' || ch == 'I' ||
+            ch == 'O' || ch == 'U');
+        if (!is_vowel) {
+            line[j] = ch;
+            j++;
+        }
+    }
+    line[j] = '\0';
+}
+\end{lstlisting}
+
+\section*{Тестирование}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{|Y|Y|}
+\hline
+Входные данные & Полученный результат \\
+\hline
+\code{Hello World} & \code{Hll Wrld} \\
+\code{Operating Systems} & \code{prtng Sstms} \\
+\code{AEIOU aeiou} & Один пробел, затем перевод строки \\
+\hline
+Пустая строка с переводом строки & Пустая строка с переводом строки \\
+\hline
+3000 букв \code{a}, затем \code{BC} и перевод строки & \code{BC} и перевод строки \\
+\hline
+\code{queue} без перевода строки в конце & \code{q} без перевода строки в конце \\
+\hline
+Пустой входной поток & Пустой вывод \\
+\hline
+Два имени файлов, затем конец ввода & Код \code{0}; оба файла пустые \\
+\hline
+Строка из 3000 цифр \code{0} & Одна строка длиной 3000 символов; код завершения \code{0} \\
+\hline
+Первое имя файла пустое, второе корректное & Код завершения \code{1}; файлы не созданы \\
+\hline
+Первый файл в несуществующей папке, второй путь корректный & Ошибка открытия файла; код завершения \code{1}; второй файл пустой \\
+\hline
+\end{tabularx}
+\end{center}
+
+\section*{Вывод}
+В ходе работы научился связывать отдельные процессы через неименованные каналы и перенаправлять их стандартные потоки. Разобрался, что после \code{fork} нужно настроить файловые дескрипторы, а \code{execvp} запускает другую программу в уже созданном процессе. На примере завершения ввода понял, почему сначала нужно закрывать запись в каналы и только потом ждать дочерние процессы: иначе они могут продолжать ожидать данные.
+
+Также закрепил работу с динамической памятью при чтении длинных строк и обработку строки без дополнительного буфера.
+
+\end{document}
